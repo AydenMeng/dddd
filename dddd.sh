@@ -46,7 +46,8 @@ usage_dddd()
 	log_normal  '  -d [disk name]       - Disk specified to be as target system disk.'
 	log_normal  '  -u [username]        - Set the username of the system'
 	log_normal  '  -p [password]        - Set the user password of the system, the root password'
-	log_normal  '  -t [test run]        - Only decompress iso and rootfs to the target directory'
+	log_normal  '  -T [Test run]        - Only decompress iso and rootfs to the target directory'
+	log_normal  '  -t [target dir]      - Sync an exsit rootfs to the target directory'
 	log_normal  '  -r [recovery]        - Recover all mount point even delete them'
 	log_normal  '  -m [mount point]     - Mount point you planed'
 	log_normal  '  -E [ESP size]        - GB'
@@ -544,6 +545,16 @@ disk_check_dddd()
 args_parse_dddd()
 {
 	local l_nvme_suffix l_tmp
+	if [[ -d "$G_DDDD_BACKUP_TARGET" ]]; then
+		if dir_has_system_dddd "$G_DDDD_BACKUP_TARGET"; then
+			G_DDDD_BACKUP_FLAG=1
+			return 1 # special jobs -- backup
+		fi
+	fi
+	if [[ -d "$G_DDDD_TARGET_DIR" ]]; then
+		G_DDDD_BACKUP_FLAG=0
+		return 1 # special jobs -- backup
+	fi
 	if [[ -n "$G_DDDD_ISOFILE" && ! -f $G_DDDD_ISOFILE ]]; then
 		log_error "$G_DDDD_ISOFILE is not a file!"
 		exit 1
@@ -600,15 +611,55 @@ args_parse_dddd()
 			exit 1
 		fi
 	fi
+	return 0
+}
+
+backup_and_restore_dddd()
+{
+	local l_restore
+	if [[ "${G_DDDD_BACKUP_FLAG}" == "1" ]]; then
+		if [[ -d "$G_DDDD_TARGET_DIR" ]]; then
+			log_normal "running rsync....this will take about 10min or longer, depends your machine"
+			rsync -aAXh --progress --exclude={"/proc/*","/sys/*","/dev/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","$(pwd)"} ${G_DDDD_BACKUP_TARGET} $G_DDDD_TARGET_DIR > .dddd_rsync.log 2>&1
+			mkdir -p $G_DDDD_TARGET_DIR/{dev,proc,sys,tmp,run,mnt,media}
+			chmod 755 $G_DDDD_TARGET_DIR/{dev,proc,sys,run,mnt,media}
+			chmod 1777 $G_DDDD_TARGET_DIR/tmp
+			l_restore=1
+		else
+			log_normal "running tar....this will create dddd_backup.tar form your rootfs"
+			tar --acls --selinux --xattrs -cf dddd_backup.tar --exclude={"/proc/*","/sys/*","/dev/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","$(pwd)"} ${G_DDDD_BACKUP_TARGET}
+		fi
+	else
+		if file $G_DDDD_ISOFILE | grep -w tar ; then
+			log_normal "decompressing the rootfs to the target dir...."
+			tar --acls --selinux --xattrs -xmf dddd_backup.tar -C $G_DDDD_TARGET_DIR
+			l_restore=1
+		else
+			return 1
+		fi
+	fi
+	if [[ "$l_restore" == "1" ]]; then
+		log_normal "fix the fstab...."
+		chmod +x ./genfstab/genfstab
+		./genfstab/genfstab -U $G_DDDD_TARGET_DIR > $G_DDDD_TARGET_DIR/etc/fstab
+		sed -i 's/[^#]\(.*swap\)/#\1/g' $G_DDDD_TARGET_DIR/etc/fstab
+		log_normal "fix the grub.cfg...."
+		G_DDDD_ROOT_UUID=$(mount -v | grep " $(realpath ${G_DDDD_TARGET_DIR}) " | awk '{print $1}' | xargs -I N blkid -s UUID -o value N)
+		log_normal "ROOT UUID = ${G_DDDD_ROOT_UUID}....check it out if you want"
+		sed -i "s/set=root\s*\S*/set=root ${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
+		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
+		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/boot.cfg
+	fi
 }
 
 main_dddd()
 {
+	local l_ret
 	if [[ $# -eq 0  ]]; then
 		usage_dddd
 		exit 0
 	fi
-	ARGS=$(getopt -o hrta:f:c:d:u:p:m:E:B:R:S:H: -- "$@")
+	ARGS=$(getopt -o hrTa:b:t:f:c:d:u:p:m:E:B:R:S:H: -- "$@")
 	if [ $? != 0 ]; then
 		log "Terminating..."
 		exit 1
@@ -626,18 +677,28 @@ main_dddd()
 				G_DDDD_RECOVER=1
 				shift
 				;;
-			-t)
+			-T)
 				G_DDDD_TEST=1
 				shift
 				;;
+			-t)
+				G_DDDD_TARGET_DIR=$2
+				log "Target root directory: ${G_DDDD_TARGET_DIR}";
+				shift 2
+				;;
 			-f)
 				G_DDDD_ISOFILE=$2
-				log "Target ISO file: ${G_DDDD_ISOFILE}";
+				log "Target ISO/Backup file: ${G_DDDD_ISOFILE}";
 				shift 2
 				;;
 			-a)
 				G_DDDD_BOOT_ARGS=$2
 				log "Append boot args: ${G_DDDD_BOOT_ARGS}";
+				shift 2
+				;;
+			-b)
+				G_DDDD_BACKUP_TARGET=$2
+				log "Backing up $2: ${G_DDDD_BACKUP_TARGET}";
 				shift 2
 				;;
 			-c)
@@ -707,6 +768,11 @@ main_dddd()
 	fi
 
 	args_parse_dddd
+	l_ret=$?
+	if [[ "$l_ret" == "1" ]]; then # special jobs -- backup
+		backup_and_restore_dddd
+		exit 0
+	fi
 	if ! rootfs_mount_point_recover_dddd; then
 		exit 1
 	fi
