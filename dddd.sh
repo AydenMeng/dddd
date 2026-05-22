@@ -616,7 +616,7 @@ args_parse_dddd()
 
 backup_and_restore_dddd()
 {
-	local l_restore
+	local l_restore l_initrd
 	if [[ "${G_DDDD_BACKUP_FLAG}" == "1" ]]; then
 		if [[ -d "$G_DDDD_TARGET_DIR" ]]; then
 			log_normal "running rsync....this will take about 10min or longer, depends your machine"
@@ -649,6 +649,30 @@ backup_and_restore_dddd()
 		sed -i "s/set=root\s*\S*/set=root ${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/boot.cfg
+
+		# make initramfs
+		mount --types proc /proc $G_DDDD_TARGET_DIR/proc
+		mount --rbind /dev $G_DDDD_TARGET_DIR/dev
+		mount --make-rslave $G_DDDD_TARGET_DIR/dev
+		mount --rbind /sys $G_DDDD_TARGET_DIR/sys
+		mount --make-rslave $G_DDDD_TARGET_DIR/sys
+		mount --bind /run $G_DDDD_TARGET_DIR/run
+		mount --make-rslave $G_DDDD_TARGET_DIR/run
+		log "mount host file system to ${G_DDDD_TARGET_DIR} ...done"
+
+		l_initrd=$(cat ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg | grep "initrd.*$(uname -r)" | head -1 | awk '{print $2}' | xargs -I N basename N)
+
+		chroot $G_DDDD_TARGET_DIR <<- EOF
+		ls /lib/modules/ | xargs -I N mkinitramfs -o /boot/initrd.img-N N
+		dracut /boot/${l_initrd} --force --kver $(uname -r)
+		exit
+EOF
+		log "all done ... umount all..."
+		umount -l -i -R $G_DDDD_TARGET_DIR/dev
+		umount -l -i -R $G_DDDD_TARGET_DIR/proc
+		umount -l -i -R $G_DDDD_TARGET_DIR/sys
+		umount -l -i -R $G_DDDD_TARGET_DIR/run
+		#umount -R $G_DDDD_TARGET_DIR
 	fi
 }
 
