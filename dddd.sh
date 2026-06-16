@@ -644,9 +644,14 @@ backup_and_restore_dddd()
 		./genfstab/genfstab -U $G_DDDD_TARGET_DIR > $G_DDDD_TARGET_DIR/etc/fstab
 		sed -i 's/[^#]\(.*swap\)/#\1/g' $G_DDDD_TARGET_DIR/etc/fstab
 		log_normal "fix the grub.cfg...."
+		G_DDDD_ROOT_UUID=$(mount -v | grep " $(realpath ${G_DDDD_TARGET_DIR}/boot) " | awk '{print $1}' | xargs -I N blkid -s UUID -o value N)
+		if [[ -z "$G_DDDD_ROOT_UUID" ]]; then
+			G_DDDD_ROOT_UUID=$(mount -v | grep " $(realpath ${G_DDDD_TARGET_DIR}) " | awk '{print $1}' | xargs -I N blkid -s UUID -o value N)
+		fi
+		log_normal "GRUB ROOT UUID = ${G_DDDD_ROOT_UUID}....check it out if you want"
+		sed -i "s/set=root\s*\S*/set=root ${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		G_DDDD_ROOT_UUID=$(mount -v | grep " $(realpath ${G_DDDD_TARGET_DIR}) " | awk '{print $1}' | xargs -I N blkid -s UUID -o value N)
 		log_normal "ROOT UUID = ${G_DDDD_ROOT_UUID}....check it out if you want"
-		sed -i "s/set=root\s*\S*/set=root ${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/boot.cfg
 
