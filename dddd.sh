@@ -653,7 +653,9 @@ backup_and_restore_dddd()
 		G_DDDD_ROOT_UUID=$(mount -v | grep " $(realpath ${G_DDDD_TARGET_DIR}) " | awk '{print $1}' | xargs -I N blkid -s UUID -o value N)
 		log_normal "ROOT UUID = ${G_DDDD_ROOT_UUID}....check it out if you want"
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
+		sed -i "s/resume=\S*/resume=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/grub/grub.cfg
 		sed -i "s/root=\S*/root=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/boot.cfg
+		sed -i "s/resume=\S*/resume=UUID=${G_DDDD_ROOT_UUID}/g" ${G_DDDD_TARGET_DIR}/boot/boot.cfg
 
 		# make initramfs
 		mount --types proc /proc $G_DDDD_TARGET_DIR/proc
