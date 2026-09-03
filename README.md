@@ -1,6 +1,6 @@
 ## About
 
-dddd don't do dd. It helps user who dont want to dd a livecd before installing OS.
+dddd doesn't do dd. It helps user who dont want to dd a livecd before installing OS.
 
 ## Usage
 
